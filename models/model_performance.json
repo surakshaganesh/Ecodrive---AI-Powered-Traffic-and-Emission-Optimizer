@@ -1,0 +1,16 @@
+{
+  "congestion": {
+    "model_type": "RandomForest",
+    "mse": 0.17966820529087585,
+    "mae": 0.2730668031569677,
+    "r2_score": 0.9995716271782059,
+    "accuracy_percentage": 95
+  },
+  "emission": {
+    "model_type": "RandomForest",
+    "mse": 594050.1563099122,
+    "mae": 516.7390078339041,
+    "r2_score": 0.947416369994733,
+    "accuracy_percentage": 94.7416369994733
+  }
+}

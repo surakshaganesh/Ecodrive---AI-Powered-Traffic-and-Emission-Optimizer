@@ -11,6 +11,46 @@ from models.traffic_predictor import TrafficPredictor
 from models.route_optimizer import RouteOptimizer
 from utils.data_processor import DataProcessor
 from utils.ai_assistant import AIAssistant
+from deploy import initialize_deployment
+from monitoring import SystemMonitor
+import pickle
+import os
+
+class ModelLoader:
+    def __init__(self):
+        self.congestion_model = None
+        self.emission_model = None
+        self.scaler = None
+        self.load_models()
+    
+    def load_models(self):
+        try:
+            # Load trained models
+            with open('models/congestion_model.pkl', 'rb') as f:
+                self.congestion_model = pickle.load(f)
+            
+            with open('models/emission_model.pkl', 'rb') as f:
+                self.emission_model = pickle.load(f)
+                
+            if os.path.exists('models/congestion_scaler.pkl'):
+                with open('models/congestion_scaler.pkl', 'rb') as f:
+                    self.scaler = pickle.load(f)
+                                
+        except Exception as e:
+            st.error(f"❌ Error loading models: {e}")
+            st.info("Run 'python train_models.py' first to train models")
+
+# Initialize model loader
+@st.cache_resource
+def load_models():
+    return ModelLoader()
+
+model_loader = load_models()
+
+# Initialize deployment
+deployment = initialize_deployment()
+monitor = SystemMonitor()
+
 
 # Page configuration
 st.set_page_config(
@@ -111,7 +151,7 @@ class EcoDriveApp:
         """Render main header"""
         st.markdown("""
         <div class="main-header">
-            <h1 style="color: white; margin: 0;">🚗 EcoDrive AI - Multi-City Traffic Optimizer</h1>
+            <h1 style="color: white; margin: 0;">🚗 EcoDrive AI - Traffic and Emission Optimizer</h1>
             <p style="color: white; margin: 0;">Real-time AI-powered traffic optimization across Indian metros</p>
         </div>
         """, unsafe_allow_html=True)
@@ -255,8 +295,9 @@ class EcoDriveApp:
             self.display_route_results_enhanced(st.session_state.route_result)
 
     def optimize_route_enhanced(self, from_city, to_city, start_location, end_location, vehicle, route_type):
-        """Enhanced route optimization for both intra and inter-city routes"""
+        """Enhanced route optimization with realistic vehicle-specific logic"""
         
+        # FIRST: Calculate distance (SAME for all vehicles)
         if route_type == "Intra-City (Within City)":
             # Intra-city distances (within same city)
             city_distance_ranges = {
@@ -267,28 +308,67 @@ class EcoDriveApp:
             }
             
             distance_range = city_distance_ranges.get(from_city, (3, 20))
-            distance = round(random.uniform(distance_range[0], distance_range[1]), 1)
+            # Generate base distance - SAME for all vehicles
+            base_distance = round(random.uniform(distance_range[0], distance_range[1]), 1)
             
-            # City traffic speeds
+            # Vehicle-specific route adjustments
+            vehicle_route_factors = {
+                'bike': 0.95,    # Bikes can take shortcuts
+                'car': 1.0,      # Standard route
+                'bus': 1.1,      # Buses follow longer fixed routes
+                'ev': 1.0        # Same as car
+            }
+            
+            distance = round(base_distance * vehicle_route_factors.get(vehicle, 1.0), 1)
+            
+            # Vehicle-specific speeds (accounting for traffic)
             congestion_factor = st.session_state.live_data[from_city]['congestion'] / 100
-            base_speed = 20 - (congestion_factor * 10)  # 10-20 km/h in city
+            
+            vehicle_speeds = {
+                'bike': 25 - (congestion_factor * 8),   # Fastest, less affected by traffic
+                'car': 20 - (congestion_factor * 10),   # Medium speed
+                'bus': 15 - (congestion_factor * 12),   # Slowest, most affected by traffic
+                'ev': 22 - (congestion_factor * 9)      # Slightly faster than regular car
+            }
+            
+            base_speed = vehicle_speeds.get(vehicle, 20)
             travel_time = int((distance / base_speed) * 60)
             travel_time = max(travel_time, 8)  # Minimum 8 minutes
             
             route_description = f"Intra-city route within {self.cities[from_city]['name']}"
             
-            # Intra-city route options
+            # Vehicle-specific route recommendations
             city_routes = {
-                'bangalore': ['Outer Ring Road', 'Electronic City Flyover', 'Silk Board Junction'],
-                'delhi': ['Ring Road', 'DND Flyway', 'Inner Ring Road'],
-                'mumbai': ['Western Express Highway', 'Eastern Express Highway', 'SV Road'],
-                'hyderabad': ['Outer Ring Road', 'Cyberabad Route', 'Kondapur Route']
+                'bangalore': {
+                    'bike': ['Inner Roads', 'Bike-friendly shortcuts', 'Service Roads'],
+                    'car': ['Outer Ring Road', 'Electronic City Flyover', 'Silk Board Junction'],
+                    'bus': ['Bus Route via Major Roads', 'BMTC Main Routes', 'Designated Bus Lanes'],
+                    'ev': ['EV-friendly routes', 'Charging station routes', 'Eco-corridors']
+                },
+                'delhi': {
+                    'bike': ['Inner Ring Road', 'Bike lanes', 'Local shortcuts'],
+                    'car': ['Ring Road', 'DND Flyway', 'Inner Ring Road'],
+                    'bus': ['DTC Bus Routes', 'BRT Corridors', 'Major arterial roads'],
+                    'ev': ['Delhi EV corridors', 'Charging station network', 'Low emission zones']
+                },
+                'mumbai': {
+                    'bike': ['SV Road shortcuts', 'Local connecting roads', 'Bike-friendly routes'],
+                    'car': ['Western Express Highway', 'Eastern Express Highway', 'SV Road'],
+                    'bus': ['BEST Bus Routes', 'Main bus corridors', 'Dedicated bus lanes'],
+                    'ev': ['EV charging routes', 'Low traffic zones', 'Green corridors']
+                },
+                'hyderabad': {
+                    'bike': ['Inner city roads', 'IT corridor shortcuts', 'Local routes'],
+                    'car': ['Outer Ring Road', 'Cyberabad Route', 'Kondapur Route'],
+                    'bus': ['TSRTC Routes', 'Metro feeder routes', 'Main bus corridors'],
+                    'ev': ['Cyberabad EV routes', 'HITEC City corridors', 'Charging network routes']
+                }
             }
             
-            recommended_route = random.choice(city_routes.get(from_city, ['Main City Route']))
+            recommended_route = random.choice(city_routes.get(from_city, {}).get(vehicle, ['Main City Route']))
             
         else:
-            # Inter-city distances (between different cities)
+            # Inter-city logic (same distance, different travel characteristics)
             inter_city_distances = {
                 ('bangalore', 'hyderabad'): (563, 'NH44'),
                 ('hyderabad', 'bangalore'): (563, 'NH44'),
@@ -306,45 +386,90 @@ class EcoDriveApp:
             
             route_key = (from_city, to_city)
             if route_key in inter_city_distances:
-                distance, highway = inter_city_distances[route_key]
-                # Add some variation (±5%)
-                distance = round(distance * random.uniform(0.95, 1.05), 0)
+                base_distance, highway = inter_city_distances[route_key]
+                # Same base distance for all vehicles
+                distance = base_distance
                 recommended_route = highway
             else:
-                # Same city selected for inter-city
                 distance = 15
                 recommended_route = "City Connection Route"
-                
-            # Highway speeds (faster than city)
-            base_speed = 60 - (random.randint(0, 20))  # 40-60 km/h average including stops
+            
+            # Vehicle-specific highway speeds and characteristics
+            vehicle_highway_speeds = {
+                'bike': 55,    # Moderate highway speed for safety
+                'car': 65,     # Good highway speed
+                'bus': 50,     # Slower due to stops and regulations
+                'ev': 60       # Good speed with charging considerations
+            }
+            
+            base_speed = vehicle_highway_speeds.get(vehicle, 60)
+            # Add some traffic variation
+            base_speed = base_speed - random.randint(5, 15)
             travel_time = int((distance / base_speed) * 60)
             travel_time = max(travel_time, 30)  # Minimum 30 minutes for inter-city
             
             route_description = f"Inter-city route from {self.cities[from_city]['name']} to {self.cities[to_city]['name']}"
         
-        # Calculate emissions (same logic for both)
+        # Calculate emissions (vehicle-specific, same distance)
         emission = round(distance * self.vehicle_emissions[vehicle]['factor'], 2)
-        alternative_emission = round(emission * 1.25, 2)  # Less savings for longer routes
+        alternative_emission = round(emission * 1.25, 2)
         savings = round(alternative_emission - emission, 2)
         
-        # AI reasoning based on route type
+        # Vehicle-specific AI reasoning
+        vehicle_insights = {
+            'bike': f"""
+            🏍️ **Motorcycle Analysis:**
+            - Fastest travel time due to traffic maneuverability
+            - Can take shortcuts and narrow lanes
+            - Lowest fuel cost: ₹{int(distance * 2)} (approx)
+            - Weather dependent travel
+            - Parking advantage in congested areas
+            """,
+            'car': f"""
+            🚗 **Car Analysis:**
+            - Comfortable private transport option
+            - Moderate speed affected by traffic congestion
+            - Fuel cost: ₹{int(distance * 6)} (approx)
+            - Air-conditioned comfort
+            - Easy luggage capacity
+            """,
+            'bus': f"""
+            🚌 **Bus Analysis:**
+            - Most economical option: ₹{random.randint(10, 50)} per person
+            - Slower due to multiple stops and fixed routes
+            - Eco-friendly per passenger basis
+            - No parking hassles
+            - Fixed schedule dependency
+            """,
+            'ev': f"""
+            ⚡ **Electric Vehicle Analysis:**
+            - Environmentally friendly with 75% lower emissions
+            - Cost-effective: ₹{int(distance * 1.5)} electricity cost
+            - Smooth and quiet operation
+            - Charging infrastructure consideration
+            - Government incentives and toll benefits
+            """
+        }
+        
+        # AI reasoning based on route type and vehicle
         if route_type == "Intra-City (Within City)":
             ai_reasoning = f"""
             🤖 **AI Analysis - Intra-City Route ({self.cities[from_city]['name']}):**
             
-            Optimized city route via **{recommended_route}** for efficient urban travel.
+            Optimized route via **{recommended_route}** for your **{self.vehicle_emissions[vehicle]['name']}**.
             
-            **Key Insights:**
+            **Route Details:**
+            - Distance: {distance} km (same route, vehicle-optimized)
             - Current city traffic: {st.session_state.live_data[from_city]['congestion']}%
-            - Optimal city route selected based on real-time congestion
-            - Vehicle efficiency in stop-and-go traffic considered
-            - Traffic signal timing optimized
+            - Estimated travel time: {travel_time} minutes
             
-            **Urban factors analyzed:**
-            - Peak hour traffic patterns
-            - Construction and road closures
-            - Public transport integration
-            - Parking availability at destination
+            {vehicle_insights[vehicle]}
+            
+            **Traffic Optimization:**
+            - Real-time congestion analysis
+            - Vehicle-specific route preferences
+            - Signal timing optimization
+            - Alternative route suggestions
             """
         else:
             ai_reasoning = f"""
@@ -352,17 +477,18 @@ class EcoDriveApp:
             
             Long-distance route from **{self.cities[from_city]['name']}** to **{self.cities[to_city]['name']}** via **{recommended_route}**.
             
-            **Key Insights:**
-            - Total highway distance: {distance} km
-            - Estimated fuel cost: ₹{int(distance * 6)} (approx)
-            - Recommended departure: Early morning (6-8 AM) for less traffic
-            - Toll charges: ₹{random.randint(200, 800)} (estimated)
+            **Journey Details:**
+            - Highway distance: {distance} km
+            - Estimated travel time: {travel_time//60}h {travel_time%60}m
+            - Recommended departure: Early morning (6-8 AM)
             
-            **Highway factors analyzed:**
-            - Weather conditions along route
-            - Construction zones and diversions
-            - Fuel station locations
-            - Rest stop recommendations every 200km
+            {vehicle_insights[vehicle]}
+            
+            **Highway Factors:**
+            - Weather conditions monitoring
+            - Rest stops every 200km recommended
+            - Fuel/charging station locations
+            - Toll charges: ₹{random.randint(200, 800)} (estimated)
             """
         
         return {
@@ -376,7 +502,8 @@ class EcoDriveApp:
             'co2_reduction': round((savings / alternative_emission) * 100, 1) if alternative_emission > 0 else 0,
             'ai_reasoning': ai_reasoning,
             'route': recommended_route,
-            'route_description': route_description
+            'route_description': route_description,
+            'vehicle_type': vehicle
         }
 
     def display_route_results_enhanced(self, result):
@@ -493,15 +620,59 @@ class EcoDriveApp:
                     st.rerun()
 
     def generate_ai_response(self, user_input):
-        """Generate AI response (simulated)"""
-        responses = [
-            f"Based on current traffic data, I recommend avoiding peak hours (8-10 AM, 6-8 PM) in your selected city.",
-            f"Your route shows {random.randint(15, 30)}% congestion. Consider alternative timing for better efficiency.",
-            f"Electric vehicles can reduce emissions by 75% compared to conventional vehicles in urban traffic.",
-            f"Traffic prediction: Congestion will {'increase' if random.random() > 0.5 else 'decrease'} in the next 30 minutes.",
-            f"Pro tip: Combining trips can reduce your carbon footprint by up to 60%. Plan multiple stops efficiently!",
-            f"Current air quality index is {random.randint(80, 200)}. Consider eco-friendly transport options."
-        ]
+        """Generate intelligent, context-aware AI responses"""
+        user_input_lower = user_input.lower()
+        
+        # Analyze user intent and provide specific responses
+        if any(word in user_input_lower for word in ['traffic', 'congestion', 'jam', 'slow']):
+            responses = [
+                f"Current traffic analysis shows heavy congestion in {random.choice(list(self.cities.values()))['name']}. Peak hours are typically 8-10 AM and 6-8 PM.",
+                f"Traffic prediction indicates congestion will {'increase' if random.random() > 0.5 else 'decrease'} in the next hour.",
+                f"Weather conditions can increase traffic congestion by 15-25%. Plan extra time during adverse weather.",
+                f"For optimal timing, avoid peak hours or consider alternative departure times."
+            ]
+        
+        elif any(word in user_input_lower for word in ['route', 'path', 'way', 'direction']):
+            responses = [
+                f"I analyze {random.randint(5, 12)} different route options considering traffic, distance, and emissions.",
+                f"Alternative routes can save 15-30% travel time compared to direct paths during peak hours.",
+                f"Route selection depends on vehicle type - motorcycles can use shortcuts, buses follow designated lanes.",
+                f"Smart routing considers signal timing to reduce stops by up to 40%."
+            ]
+        
+        elif any(word in user_input_lower for word in ['emission', 'co2', 'carbon', 'pollution']):
+            responses = [
+                f"Vehicle emissions comparison: EVs produce 75% less CO2, motorcycles are 60% more efficient than cars.",
+                f"Route optimization can reduce emissions by 20-30%. Carpooling decreases carbon footprint by 45-60%.",
+                f"Current air quality index ranges from {random.randint(80, 200)} AQI. Choose eco-friendly transport when possible.",
+                f"Eco-driving techniques can improve fuel efficiency by 15-20% on the same route."
+            ]
+        
+        elif any(word in user_input_lower for word in ['cost', 'price', 'fuel', 'money']):
+            responses = [
+                f"Cost per km: Motorcycle ₹2, EV ₹1.5, Car ₹6, Bus ₹0.50 per person.",
+                f"Toll charges vary by route: highways cost ₹200-800 depending on distance.",
+                f"Public transport is most economical: bus fares ₹10-50, private vehicles ₹100-400 for similar distances.",
+                f"EV charging costs are 70% lower than petrol/diesel for equivalent distances."
+            ]
+        
+        elif any(word in user_input_lower for word in ['time', 'duration', 'minutes', 'hours']):
+            responses = [
+                f"Travel time varies by vehicle: motorcycles 25 km/h, cars 20 km/h, buses 15 km/h in city traffic.",
+                f"Peak hour travel increases journey time by 40-60%. Depart 30 minutes before/after peak hours.",
+                f"Highway speeds: cars 65 km/h, motorcycles 55 km/h, buses 50 km/h average.",
+                f"Real-time adjustments can save 10-25 minutes on longer routes."
+            ]
+        
+        else:
+            responses = [
+                f"I analyze traffic patterns, weather, and vehicle efficiency for optimal recommendations.",
+                f"My suggestions balance travel time, cost, and environmental impact based on your priorities.",
+                f"Specify your route, vehicle type, and time constraints for more accurate guidance.",
+                f"I provide location-specific advice across Indian metropolitan areas.",
+                f"Smart planning considers departure timing, route alternatives, and transport mode options."
+            ]
+        
         return random.choice(responses)
 
     def render_analytics(self):
@@ -584,7 +755,7 @@ class EcoDriveApp:
             - **Visualization**: Plotly  
             - **Deployment**: Docker, Cloud  
             """)
-        
+         
         # Main content tabs
         tab1, tab2, tab3, tab4 = st.tabs(["🌐 Live Dashboard", "🎯 Route Optimizer", "💬 AI Assistant", "📊 Analytics"])
         
@@ -604,7 +775,7 @@ class EcoDriveApp:
         st.markdown("---")
         st.markdown("""
         <div style="text-align: center; padding: 2rem;">
-            <h3>🚀 EcoDrive AI - Production-Grade Traffic Intelligence</h3>
+            <h3>🚀 EcoDrive AI - Traffic and Emission Optimizer</h3>
             <p>Built with Python + ML Pipeline | Real-time Processing | Scalable Architecture</p>
             <p><strong>✅ Gen AI Integration | ✅ Multi-City Support | ✅ Production Deployment | ✅ Real-time Analytics</strong></p>
         </div>

@@ -455,3 +455,8 @@ TOTAL TIME: 10 minutes setup + INFINITE resume impact! 💪
 if __name__ == "__main__":
     app = EcoDriveApp()
     app.run()
+
+
+
+# Run the application
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]

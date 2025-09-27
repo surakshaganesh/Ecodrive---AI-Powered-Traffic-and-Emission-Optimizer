@@ -1,4 +1,4 @@
-# 🚗 EcoDrive AI - Multi-City Traffic & Emission Optimizer
+# 🚗 EcoDrive AI - Powered Traffic and Emission Optimizer
 
 ## 🌟 Project Overview
 EcoDrive AI is a production-grade artificial intelligence system that optimizes traffic routes across multiple Indian metropolitan cities to minimize CO2 emissions while maintaining efficient travel times. Built with modern ML/AI technologies and deployed with enterprise-level architecture.
@@ -44,7 +44,6 @@ EcoDrive AI is a production-grade artificial intelligence system that optimizes 
 
 ### **Visualization & UI**
 - **Plotly**: Interactive charts and analytics
-- **Folium**: Map visualizations and route display
 - **Streamlit Components**: Modern, responsive web interface
 
 ### **Deployment & DevOps**
@@ -75,13 +74,6 @@ pip install -r requirements.txt
 
 # 4. Run application
 streamlit run app.py
-```
-
-### Optional: OpenAI Integration
-```bash
-# Get free API key from https://openai.com
-export OPENAI_API_KEY="your-api-key-here"
-```
 
 ## 📁 Project Structure
 ```
@@ -109,6 +101,7 @@ ecodrive-ai/
 - Track system performance and ML model accuracy
 
 ### 2. Route Optimization
+- Select intercity or intracity
 - Select source city (Delhi/Mumbai/Bangalore/Hyderabad)
 - Input start and destination locations
 - Choose vehicle type (Car/Bike/Bus/Electric)
@@ -123,41 +116,7 @@ ecodrive-ai/
 - View ML model performance metrics
 - Analyze city-wise CO2 savings trends  
 - Monitor real-time system statistics
-
-## 🎯 Demo Scenarios
-
-### Scenario 1: Morning Commute
 ```
-Input: Koramangala to Electronic City, Bangalore, Car
-Output: Eco-optimized route saving 2.3kg CO2 and 15 minutes
-AI Reasoning: "Avoid Silk Board, use Bannerghatta Road for 25% emission reduction"
-```
-
-### Scenario 2: Multi-City Analysis
-```
-Compare traffic across cities:
-- Delhi: 78% congestion, 1.2M vehicles
-- Mumbai: 65% congestion, 800K vehicles  
-- Bangalore: 54% congestion, 600K vehicles
-- Hyderabad: 43% congestion, 450K vehicles
-```
-
-## 📊 Performance Metrics
-
-### **ML Model Accuracy**
-- Traffic Prediction: **94.2%** accuracy
-- Route Optimization: **91.8%** efficiency  
-- Emission Calculation: **96.5%** precision
-
-### **System Performance**  
-- Response Time: **<2 seconds** average
-- Uptime: **99.9%** availability
-- Concurrent Users: **10,000+** supported
-
-### **Environmental Impact**
-- CO2 Reduction: **20-30%** per optimized route
-- Daily Savings: **2.8 tonnes** CO2 across all cities
-- User Adoption: **12,400+** active users
 
 ## 🌱 Environmental Impact
 
@@ -175,12 +134,6 @@ EcoDrive AI contributes to sustainable transportation by:
 3. **AI Optimization**: Route algorithms minimize emissions while optimizing time
 4. **User Interface**: Interactive web app displays results and recommendations
 5. **Feedback Loop**: User choices improve model accuracy over time
-
-### **Scalability Design**
-- **Microservices Architecture**: Modular components for independent scaling
-- **Caching Layer**: Redis-like in-memory storage for fast responses  
-- **Load Balancing**: Multi-instance deployment for high availability
-- **Database Design**: Optimized queries for real-time performance
 
 ## 🎓 Educational Value
 
@@ -248,13 +201,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Contact & Support
 
-- **Demo**: [Live Application](https://ecodrive-ai.streamlit.app)
-- **Documentation**: [Technical Guide](docs/README.md)
-- **Issues**: [GitHub Issues](https://github.com/username/ecodrive-ai/issues)
-- **Email**: support@ecodrive-ai.com
-
----
-
-**⭐ Star this repository if you find it helpful for your learning or projects!**
+- **Issues**: [GitHub Issues](https://github.com/surakshaganesh/Ecodrive---AI-Powered-Traffic-and-Emission-Optimizer.git/issues)
+- **Email**: surakshaganesh2827@gmail.com
+             karthiikkp2002@gmail.com
 
 Built with ❤️ for sustainable transportation and smart cities.

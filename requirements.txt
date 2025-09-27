@@ -9,3 +9,6 @@ streamlit-folium==0.15.0
 openai==0.28.1
 requests==2.31.0
 streamlit-chat==0.1.1
+matplotlib==3.7.2
+seaborn==0.12.2
+redis==4.6.0
