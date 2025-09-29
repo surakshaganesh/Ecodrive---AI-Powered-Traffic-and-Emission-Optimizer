@@ -1,16 +1,16 @@
 {
   "congestion": {
     "model_type": "RandomForest",
-    "mse": 0.17966820529087585,
-    "mae": 0.2730668031569677,
-    "r2_score": 0.9995716271782059,
+    "mse": 0.15666185612632588,
+    "mae": 0.26397500960816983,
+    "r2_score": 0.9996342236540129,
     "accuracy_percentage": 95
   },
   "emission": {
     "model_type": "RandomForest",
-    "mse": 594050.1563099122,
-    "mae": 516.7390078339041,
-    "r2_score": 0.947416369994733,
-    "accuracy_percentage": 94.7416369994733
+    "mse": 616226.5178918283,
+    "mae": 520.5605716181507,
+    "r2_score": 0.9436771229874376,
+    "accuracy_percentage": 94.36771229874375
   }
 }
