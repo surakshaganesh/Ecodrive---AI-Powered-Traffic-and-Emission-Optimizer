@@ -67,7 +67,8 @@ ecodrive-ai/
     ├── deployment.log
     └── system_metrics.json
 
----
+```
+--- 
 
 ## 🚀 Quick Start 
 
