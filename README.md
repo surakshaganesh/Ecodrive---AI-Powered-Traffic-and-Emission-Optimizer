@@ -36,7 +36,7 @@
 - **Backend & ML:** Python 3.9+, Scikit-learn, XGBoost, Pandas, NumPy  
 - **Web Framework:** Streamlit  
 - **Visualization:** Plotly  
-- **Deployment:** Docker, Docker Compose, Redis  
+- **Deployment:** Docker, Docker Compose  
 - **Version Control:** Git, GitHub LFS
 
 ---
