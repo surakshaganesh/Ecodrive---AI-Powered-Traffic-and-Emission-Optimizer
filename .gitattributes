@@ -1,3 +1,5 @@
 *.ext filter=lfs diff=lfs merge=lfs -text
 models/emission_model.pkl filter=lfs diff=lfs merge=lfs -text
 models/congestion_model.pkl filter=lfs diff=lfs merge=lfs -text
+*.pkl filter=lfs diff=lfs merge=lfs -text
+models/*.pkl filter=lfs diff=lfs merge=lfs -text
