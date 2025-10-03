@@ -14,6 +14,8 @@ from utils.ai_assistant import AIAssistant
 from monitoring import SystemMonitor
 import pickle
 import os
+import folium
+from streamlit_folium import st_folium
 
 class ModelLoader:
     def __init__(self):
@@ -369,9 +371,136 @@ class EcoDriveApp:
             'route_description': route_description,
             'vehicle_type': vehicle
         }
+    def display_route_map(self, result):
+        """Display interactive map with optimized route"""
+        
+        from_city_coords = self.cities[result['from_city']]
+        to_city_coords = self.cities[result['to_city']]
+        
+        # Calculate center point for map
+        center_lat = (from_city_coords['lat'] + to_city_coords['lat']) / 2
+        center_lon = (from_city_coords['lon'] + to_city_coords['lon']) / 2
+        
+        # Determine zoom level based on route type
+        if result['route_type'] == "Intra-City (Within City)":
+            zoom_start = 12
+        else:
+            zoom_start = 6
+        
+        # Create map
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=zoom_start,
+            tiles='OpenStreetMap'
+        )
+        
+        # Color code based on CO2 emission level
+        if result['emission'] < 5:
+            route_color = '#10B981'  # Green - Excellent
+            emission_category = 'Excellent'
+        elif result['emission'] < 15:
+            route_color = '#3B82F6'  # Blue - Good
+            emission_category = 'Good'
+        elif result['emission'] < 30:
+            route_color = '#F59E0B'  # Orange - Moderate
+            emission_category = 'Moderate'
+        else:
+            route_color = '#EF4444'  # Red - High
+            emission_category = 'High'
+        
+        # Add start marker
+        folium.Marker(
+            location=[from_city_coords['lat'], from_city_coords['lon']],
+            popup=folium.Popup(f"""
+                <div style='width: 200px'>
+                    <h4>🚀 Start Point</h4>
+                    <p><b>{from_city_coords['name']}</b></p>
+                    <p>Vehicle: {self.vehicle_emissions[result['vehicle_type']]['name']}</p>
+                </div>
+            """, max_width=250),
+            tooltip=f"Start: {from_city_coords['name']}",
+            icon=folium.Icon(color='green', icon='play', prefix='fa')
+        ).add_to(m)
+        
+        # Add end marker
+        folium.Marker(
+            location=[to_city_coords['lat'], to_city_coords['lon']],
+            popup=folium.Popup(f"""
+                <div style='width: 200px'>
+                    <h4>🏁 Destination</h4>
+                    <p><b>{to_city_coords['name']}</b></p>
+                    <p>Distance: {result['distance']} km</p>
+                    <p>Time: {result['time']} min</p>
+                </div>
+            """, max_width=250),
+            tooltip=f"End: {to_city_coords['name']}",
+            icon=folium.Icon(color='red', icon='stop', prefix='fa')
+        ).add_to(m)
+        
+        # Draw route line
+        route_coords = [
+            [from_city_coords['lat'], from_city_coords['lon']],
+            [to_city_coords['lat'], to_city_coords['lon']]
+        ]
+        
+        folium.PolyLine(
+            route_coords,
+            color=route_color,
+            weight=5,
+            opacity=0.8,
+            popup=folium.Popup(f"""
+                <div style='width: 250px'>
+                    <h4>🛣️ Optimized Route</h4>
+                    <p><b>Route:</b> {result['route']}</p>
+                    <p><b>Distance:</b> {result['distance']} km</p>
+                    <p><b>Time:</b> {result['time']} min</p>
+                    <p><b>CO₂ Emission:</b> {result['emission']} kg</p>
+                    <p><b>CO₂ Savings:</b> {result['savings']} kg ({result['co2_reduction']}%)</p>
+                    <p><b>Eco Rating:</b> <span style='color:{route_color}'>{emission_category}</span></p>
+                </div>
+            """, max_width=300),
+            tooltip=f"Distance: {result['distance']} km | CO₂: {result['emission']} kg"
+        ).add_to(m)
+        
+        # Add midpoint marker with route info
+        mid_lat = center_lat
+        mid_lon = center_lon
+        
+        folium.Marker(
+            location=[mid_lat, mid_lon],
+            popup=folium.Popup(f"""
+                <div style='width: 250px'>
+                    <h4>📊 Route Summary</h4>
+                    <p><b>Vehicle:</b> {self.vehicle_emissions[result['vehicle_type']]['icon']} {self.vehicle_emissions[result['vehicle_type']]['name']}</p>
+                    <p><b>Distance:</b> {result['distance']} km</p>
+                    <p><b>Duration:</b> {result['time']} min</p>
+                    <p><b>CO₂ Emission:</b> {result['emission']} kg</p>
+                    <p><b>CO₂ Saved:</b> {result['savings']} kg</p>
+                    <p><b>Reduction:</b> {result['co2_reduction']}%</p>
+                    <p><b>Eco Rating:</b> <span style='color:{route_color};font-weight:bold'>{emission_category}</span></p>
+                </div>
+            """, max_width=300),
+            icon=folium.DivIcon(html=f"""
+                <div style='background-color:{route_color}; 
+                            color:; 
+                            border-radius:50%; 
+                            width:40px; 
+                            height:40px; 
+                            display:flex; 
+                            align-items:center; 
+                            justify-content:center;
+                            font-weight:bold;
+                            font-size:16px;
+                            box-shadow: 0 2px 5px rgba(0,0,0,0.3);'>
+                    {self.vehicle_emissions[result['vehicle_type']]['icon']}
+                </div>
+            """)
+        ).add_to(m)
+        
+        return m
 
     def display_route_results_enhanced(self, result):
-        """Display route results"""
+        """Enhanced route results display with map"""
         st.markdown("### 🎉 Optimal Route Found!")
         
         if result['route_type'] == "Inter-City (Between Cities)":
@@ -379,6 +508,7 @@ class EcoDriveApp:
         else:
             st.info(f"🏙️ **Intra-City Route**: Within {self.cities[result['from_city']]['name']}")
         
+        # Metrics row
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -394,6 +524,73 @@ class EcoDriveApp:
             st.metric("CO₂ Emission", f"{result['emission']} kg")
         with col4:
             st.metric("CO₂ Savings", f"{result['co2_reduction']}%", f"{result['savings']} kg")
+        
+        st.markdown("---")
+        
+        # Map display
+        st.markdown("### 🗺️ Route Visualization")
+        
+        # Create two columns: map on left, details on right
+        map_col, details_col = st.columns([3, 1])
+        
+        with map_col:
+            route_map = self.display_route_map(result)
+            st_folium(route_map, width=700, height=500)
+        
+        with details_col:
+            st.markdown("#### 📋 Route Details")
+            
+            # Eco rating badge
+            if result['emission'] < 5:
+                badge_color = '#10B981'
+                rating = 'Excellent'
+                emoji = '🌟'
+            elif result['emission'] < 15:
+                badge_color = '#3B82F6'
+                rating = 'Good'
+                emoji = '✅'
+            elif result['emission'] < 30:
+                badge_color = '#F59E0B'
+                rating = 'Moderate'
+                emoji = '⚠️'
+            else:
+                badge_color = '#EF4444'
+                rating = 'High'
+                emoji = '🔴'
+            
+            st.markdown(f"""
+            <div style='background-color:{badge_color}; 
+                        color:white; 
+                        padding:10px; 
+                        border-radius:5px; 
+                        text-align:center;
+                        margin-bottom:15px;'>
+                <h3 style='margin:0; color:white;'>{emoji} {rating}</h3>
+                <p style='margin:0; color:white;'>Eco Rating</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown(f"""
+            **Vehicle:** {self.vehicle_emissions[result['vehicle_type']]['icon']} {self.vehicle_emissions[result['vehicle_type']]['name']}
+            
+            **Route:** {result['route']}
+            
+            **Distance:** {result['distance']} km
+            
+            **Duration:** {result['time']} minutes
+            
+            **CO₂ Emission:** {result['emission']} kg
+            
+            **CO₂ Saved:** {result['savings']} kg
+            
+            **Reduction:** {result['co2_reduction']}%
+            """)
+            
+            # Additional insights
+            st.markdown("---")
+            st.markdown("#### 💡 AI Insights")
+            st.info(f"This route saves **{result['savings']} kg** of CO₂ compared to alternative routes, equivalent to planting **{int(result['savings'] * 0.05)}** trees!")
+
 
     def render_ai_chat(self):
         """✅ FIXED: Render AI chat assistant with proper integration"""
