@@ -16,6 +16,10 @@ import pickle
 import os
 import folium
 from streamlit_folium import st_folium
+from geopy.distance import geodesic
+import requests
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 
 class ModelLoader:
     def __init__(self):
@@ -23,20 +27,20 @@ class ModelLoader:
         self.emission_model = None
         self.scaler = None
         self.load_models()
-    
+
     def load_models(self):
         try:
             # Load trained models
             with open('models/congestion_model.pkl', 'rb') as f:
                 self.congestion_model = pickle.load(f)
-            
+
             with open('models/emission_model.pkl', 'rb') as f:
                 self.emission_model = pickle.load(f)
-                
+
             if os.path.exists('models/congestion_scaler.pkl'):
                 with open('models/congestion_scaler.pkl', 'rb') as f:
                     self.scaler = pickle.load(f)
-                                
+
         except Exception as e:
             st.error(f"⚠️ Error loading models: {e}")
             st.info("Run 'python train_models.py' first to train models")
@@ -46,8 +50,8 @@ class ModelLoader:
 def load_models():
     return ModelLoader()
 
+
 model_loader = load_models()
-monitor = SystemMonitor()
 
 # Page configuration
 st.set_page_config(
@@ -101,6 +105,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
 class EcoDriveApp:
     def __init__(self):
         self.cities = {
@@ -109,28 +114,71 @@ class EcoDriveApp:
             'mumbai': {'name': 'Mumbai', 'lat': 19.0760, 'lon': 72.8777},
             'hyderabad': {'name': 'Hyderabad', 'lat': 17.3850, 'lon': 78.4867}
         }
-        
+
         self.vehicle_emissions = {
             'car': {'factor': 0.21, 'icon': '🚗', 'name': 'Car'},
             'bike': {'factor': 0.089, 'icon': '🏍️', 'name': 'Motorcycle'},
             'bus': {'factor': 0.105, 'icon': '🚌', 'name': 'Bus'},
             'ev': {'factor': 0.05, 'icon': '⚡', 'name': 'Electric Vehicle'}
         }
+
+         # Initialize geocoder
+        self.geocoder = Nominatim(user_agent="ecodrive_app_v1.0")
         
+        # Cache for geocoded locations
+        if 'geocode_cache' not in st.session_state:
+            st.session_state.geocode_cache = {}
+
         # Initialize components
         self.data_processor = DataProcessor()
         self.traffic_predictor = TrafficPredictor()
         self.route_optimizer = RouteOptimizer()
-        self.ai_assistant = AIAssistant()  # ✅ This is initialized
-        
+        self.ai_assistant = AIAssistant()
+
         # Initialize session state
         if 'live_data' not in st.session_state:
             st.session_state.live_data = self.generate_live_data()
         if 'chat_messages' not in st.session_state:
             st.session_state.chat_messages = [
-                {"role": "assistant", "content": "Hi! I'm your AI traffic assistant powered by ML models. Ask me about traffic, routes, emissions, or costs!"}
+                {"role": "assistant",
+                 "content": "Hi! I'm your AI traffic assistant powered by ML models. Ask me about traffic, routes, emissions, or costs!"}
             ]
 
+    def geocode_location(self, location_name, city_name):
+        """
+        Convert location name to coordinates using geocoding
+        Returns: dict with 'lat' and 'lon' keys, or None if geocoding fails
+        """
+        # Create cache key
+        cache_key = f"{location_name.lower().strip()}_{city_name}"
+        
+        # Check cache first
+        if cache_key in st.session_state.geocode_cache:
+            return st.session_state.geocode_cache[cache_key]
+        
+        try:
+            # Add city name to improve accuracy
+            full_query = f"{location_name}, {self.cities[city_name]['name']}, India"
+            
+            # Geocode with timeout
+            location = self.geocoder.geocode(full_query, timeout=10)
+            
+            if location:
+                coords = {
+                    'lat': location.latitude,
+                    'lon': location.longitude
+                }
+                # Cache the result
+                st.session_state.geocode_cache[cache_key] = coords
+                return coords
+            else:
+                return None
+                
+        except (GeocoderTimedOut, GeocoderServiceError) as e:
+            return None
+        except Exception as e:
+            return None
+        
     def generate_live_data(self):
         """Generate simulated live traffic data"""
         data = {}
@@ -155,7 +203,7 @@ class EcoDriveApp:
 
     def render_live_dashboard(self):
         """Render live traffic dashboard"""
-        st.subheader("🌍 Live Traffic Dashboard")
+        st.subheader("🌐 Live Traffic Dashboard")
         
         # Update live data every 10 seconds
         current_time = time.time()
@@ -282,221 +330,253 @@ class EcoDriveApp:
         if hasattr(st.session_state, 'route_result'):
             self.display_route_results_enhanced(st.session_state.route_result)
 
-    def optimize_route_enhanced(self, from_city, to_city, start_location, end_location, vehicle, route_type):
-        """Enhanced route optimization"""
-        
+    def optimize_route_enhanced(self, from_city, to_city, start_location, end_location, vehicle_type, route_type):
+        """Enhanced route optimization using ML models and real distance"""
+        distance = 0
+
         if route_type == "Intra-City (Within City)":
-            city_distance_ranges = {
-                'bangalore': (3, 25),
-                'delhi': (5, 30),
-                'mumbai': (4, 28), 
-                'hyderabad': (3, 22)
-            }
+            # Try to geocode actual locations
+            from_city_coords = None
+            to_city_coords = None
             
-            distance_range = city_distance_ranges.get(from_city, (3, 20))
-            base_distance = round(random.uniform(distance_range[0], distance_range[1]), 1)
+            # Show progress while geocoding
+            with st.spinner(f"Finding location: {start_location}..."):
+                try:
+                    from_city_coords = self.geocode_location(start_location, from_city)
+                except Exception as e:
+                    st.warning(f"Could not geocode {start_location}: {e}")
             
-            vehicle_route_factors = {
-                'bike': 0.95, 'car': 1.0, 'bus': 1.1, 'ev': 1.0
-            }
+            with st.spinner(f"Finding location: {end_location}..."):
+                try:
+                    to_city_coords = self.geocode_location(end_location, from_city)
+                except Exception as e:
+                    st.warning(f"Could not geocode {end_location}: {e}")
             
-            distance = round(base_distance * vehicle_route_factors.get(vehicle, 1.0), 1)
+            # Fallback to approximate coordinates if geocoding fails
+            city_center = self.cities[from_city]
+            
+            if not from_city_coords:
+                st.info(f"Using approximate location for: {start_location}")
+                from_city_coords = {
+                    'lat': city_center['lat'] + np.random.uniform(-0.03, 0.03),
+                    'lon': city_center['lon'] + np.random.uniform(-0.03, 0.03)
+                }
+            
+            if not to_city_coords:
+                st.info(f"Using approximate location for: {end_location}")
+                to_city_coords = {
+                    'lat': city_center['lat'] + np.random.uniform(-0.03, 0.03),
+                    'lon': city_center['lon'] + np.random.uniform(-0.03, 0.03)
+                }
+
+            # Calculate distance using OSRM or geodesic
+            try:
+                osrm_url = f"http://router.project-osrm.org/route/v1/driving/{from_city_coords['lon']},{from_city_coords['lat']};{to_city_coords['lon']},{to_city_coords['lat']}?overview=false"
+                response = requests.get(osrm_url, timeout=5)
+                if response.status_code == 200:
+                    route_data = response.json()
+                    if route_data.get('routes'):
+                        distance = round(route_data['routes'][0]['distance'] / 1000, 1)
+            except:
+                pass
+            
+            if not distance or distance < 0.1:
+                distance = round(geodesic(
+                    (from_city_coords['lat'], from_city_coords['lon']),
+                    (to_city_coords['lat'], to_city_coords['lon'])
+                ).kilometers * 1.3, 1)
+                if distance < 1:
+                    distance = round(np.random.uniform(3, 8), 1)
+
             congestion_factor = st.session_state.live_data[from_city]['congestion'] / 100
-            
+
             vehicle_speeds = {
                 'bike': 25 - (congestion_factor * 8),
                 'car': 20 - (congestion_factor * 10),
                 'bus': 15 - (congestion_factor * 12),
                 'ev': 22 - (congestion_factor * 9)
             }
-            
-            base_speed = vehicle_speeds.get(vehicle, 20)
+
+            base_speed = vehicle_speeds.get(vehicle_type, 20)
             travel_time = int((distance / base_speed) * 60)
             travel_time = max(travel_time, 8)
-            
+
             route_description = f"Intra-city route within {self.cities[from_city]['name']}"
-            recommended_route = f"Optimized {vehicle.title()} Route"
-            
+            recommended_route = f"Optimized {vehicle_type.title()} Route"
+
         else:
-            inter_city_distances = {
-                ('bangalore', 'hyderabad'): (563, 'NH44'),
-                ('hyderabad', 'bangalore'): (563, 'NH44'),
-                ('bangalore', 'mumbai'): (984, 'NH48'),
-                ('mumbai', 'bangalore'): (984, 'NH48'),
-                ('bangalore', 'delhi'): (2194, 'NH44 → NH48'),
-                ('delhi', 'bangalore'): (2194, 'NH44 → NH48'),
-                ('mumbai', 'delhi'): (1424, 'NH48'),
-                ('delhi', 'mumbai'): (1424, 'NH48'),
-                ('mumbai', 'hyderabad'): (711, 'NH65'),
-                ('hyderabad', 'mumbai'): (711, 'NH65'),
-                ('delhi', 'hyderabad'): (1553, 'NH44'),
-                ('hyderabad', 'delhi'): (1553, 'NH44')
+            # Inter-city: use city center coords
+            from_city_coords = self.cities[from_city]
+            to_city_coords = self.cities[to_city]
+
+            try:
+                osrm_url = f"http://router.project-osrm.org/route/v1/driving/{from_city_coords['lon']},{from_city_coords['lat']};{to_city_coords['lon']},{to_city_coords['lat']}?overview=false"
+                response = requests.get(osrm_url, timeout=5)
+                if response.status_code == 200:
+                    route_data = response.json()
+                    if route_data.get('routes'):
+                        distance = round(route_data['routes'][0]['distance'] / 1000, 1)
+                if not distance:
+                    distance = round(geodesic(
+                        (from_city_coords['lat'], from_city_coords['lon']),
+                        (to_city_coords['lat'], to_city_coords['lon'])
+                    ).kilometers * 1.1, 1)
+            except:
+                inter_city_distances = {
+                    ('bangalore', 'hyderabad'): 563,
+                    ('hyderabad', 'bangalore'): 563,
+                    ('bangalore', 'mumbai'): 984,
+                    ('mumbai', 'bangalore'): 984,
+                    ('bangalore', 'delhi'): 2194,
+                    ('delhi', 'bangalore'): 2194,
+                    ('mumbai', 'delhi'): 1424,
+                    ('delhi', 'mumbai'): 1424,
+                    ('mumbai', 'hyderabad'): 711,
+                    ('hyderabad', 'mumbai'): 711,
+                    ('delhi', 'hyderabad'): 1553,
+                    ('hyderabad', 'delhi'): 1553
+                }
+                distance = inter_city_distances.get((from_city, to_city), 100)
+
+            highway_map = {
+                ('bangalore', 'hyderabad'): 'NH44',
+                ('hyderabad', 'bangalore'): 'NH44',
+                ('bangalore', 'mumbai'): 'NH48',
+                ('mumbai', 'bangalore'): 'NH48',
+                ('bangalore', 'delhi'): 'NH44 → NH48',
+                ('delhi', 'bangalore'): 'NH44 → NH48',
+                ('mumbai', 'delhi'): 'NH48',
+                ('delhi', 'mumbai'): 'NH48',
+                ('mumbai', 'hyderabad'): 'NH65',
+                ('hyderabad', 'mumbai'): 'NH65',
+                ('delhi', 'hyderabad'): 'NH44',
+                ('hyderabad', 'delhi'): 'NH44'
             }
-            
-            route_key = (from_city, to_city)
-            if route_key in inter_city_distances:
-                distance, highway = inter_city_distances[route_key]
-                recommended_route = highway
-            else:
-                distance = 15
-                recommended_route = "City Connection Route"
-            
+
+            recommended_route = highway_map.get((from_city, to_city), "National Highway")
+
             vehicle_highway_speeds = {
                 'bike': 55, 'car': 65, 'bus': 50, 'ev': 60
             }
-            
-            base_speed = vehicle_highway_speeds.get(vehicle, 60) - random.randint(5, 15)
+
+            base_speed = vehicle_highway_speeds.get(vehicle_type, 60)
             travel_time = int((distance / base_speed) * 60)
             travel_time = max(travel_time, 30)
-            
+
             route_description = f"Inter-city route from {self.cities[from_city]['name']} to {self.cities[to_city]['name']}"
-        
-        emission = round(distance * self.vehicle_emissions[vehicle]['factor'], 2)
+
+        # Calculate emissions
+        emission = round(distance * self.vehicle_emissions[vehicle_type]['factor'], 2)
         alternative_emission = round(emission * 1.25, 2)
         savings = round(alternative_emission - emission, 2)
-        
-        ai_reasoning = f"AI-optimized route via {recommended_route} for {vehicle.title()}"
-        
+
         return {
             'route_type': route_type,
             'from_city': from_city,
             'to_city': to_city,
+            'start_location': from_city_coords,
+            'end_location': to_city_coords,
+            'start_location_name': start_location if route_type == "Intra-City (Within City)" else self.cities[from_city]['name'],
+            'end_location_name': end_location if route_type == "Intra-City (Within City)" else self.cities[to_city]['name'],
             'distance': distance,
             'time': travel_time,
             'emission': emission,
             'savings': savings,
             'co2_reduction': round((savings / alternative_emission) * 100, 1) if alternative_emission > 0 else 0,
-            'ai_reasoning': ai_reasoning,
             'route': recommended_route,
             'route_description': route_description,
-            'vehicle_type': vehicle
+            'vehicle_type': vehicle_type
         }
+
     def display_route_map(self, result):
-        """Display interactive map with optimized route"""
-        
-        from_city_coords = self.cities[result['from_city']]
-        to_city_coords = self.cities[result['to_city']]
-        
-        # Calculate center point for map
+        """Display map with ACTUAL BLUE ROUTE like Google Maps"""
+
+        # Pick correct coordinates
+        if result['route_type'] == "Intra-City (Within City)":
+            # For intra-city, start_location and end_location should be dicts with lat/lon
+            from_city_coords = result['start_location']
+            to_city_coords = result['end_location']
+            zoom_start = 13
+        else:
+            # For inter-city, use city center coordinates
+            from_city_coords = self.cities[result['from_city']]
+            to_city_coords = self.cities[result['to_city']]
+            zoom_start = 6
+
         center_lat = (from_city_coords['lat'] + to_city_coords['lat']) / 2
         center_lon = (from_city_coords['lon'] + to_city_coords['lon']) / 2
-        
-        # Determine zoom level based on route type
-        if result['route_type'] == "Intra-City (Within City)":
-            zoom_start = 12
-        else:
-            zoom_start = 6
-        
+
         # Create map
         m = folium.Map(
             location=[center_lat, center_lon],
             zoom_start=zoom_start,
             tiles='OpenStreetMap'
         )
+
+        # ALWAYS try to fetch OSRM route with BLUE color (#4285F4)
+        route_drawn = False
+        try:
+            osrm_url = f"http://router.project-osrm.org/route/v1/driving/{from_city_coords['lon']},{from_city_coords['lat']};{to_city_coords['lon']},{to_city_coords['lat']}?overview=full&geometries=geojson"
+            response = requests.get(osrm_url, timeout=10)
+            
+            if response.status_code == 200:
+                route_data = response.json()
+                if route_data.get('routes') and len(route_data['routes']) > 0:
+                    route_geometry = route_data['routes'][0]['geometry']['coordinates']
+                    # Convert [lon, lat] to [lat, lon] for folium
+                    route_coords = [[coord[1], coord[0]] for coord in route_geometry]
+
+                    # Draw the blue route line
+                    folium.PolyLine(
+                        route_coords,
+                        color='#4285F4',  # Google Maps blue
+                        weight=6,
+                        opacity=0.9,
+                        popup=folium.Popup(f"""
+                            <div style='width: 250px'>
+                                <h4>🛣️ Optimized Route</h4>
+                                <p><b>Route:</b> {result['route']}</p>
+                                <p><b>Distance:</b> {result['distance']} km</p>
+                                <p><b>Time:</b> {result['time']} min</p>
+                                <p><b>CO₂:</b> {result['emission']} kg</p>
+                                <p><b>Savings:</b> {result['savings']} kg ({result['co2_reduction']}%)</p>
+                            </div>
+                        """, max_width=300),
+                        tooltip=f"📍 {result['distance']} km | ⏱️ {result['time']} min"
+                    ).add_to(m)
+                    route_drawn = True
+        except Exception as e:
+            st.warning(f"Could not fetch detailed route: {e}")
         
-        # Color code based on CO2 emission level
-        if result['emission'] < 5:
-            route_color = '#10B981'  # Green - Excellent
-            emission_category = 'Excellent'
-        elif result['emission'] < 15:
-            route_color = '#3B82F6'  # Blue - Good
-            emission_category = 'Good'
-        elif result['emission'] < 30:
-            route_color = '#F59E0B'  # Orange - Moderate
-            emission_category = 'Moderate'
-        else:
-            route_color = '#EF4444'  # Red - High
-            emission_category = 'High'
-        
-        # Add start marker
+        # Fallback: draw straight line if OSRM failed
+        if not route_drawn:
+            folium.PolyLine(
+                [[from_city_coords['lat'], from_city_coords['lon']],
+                 [to_city_coords['lat'], to_city_coords['lon']]],
+                color='#4285F4',
+                weight=6,
+                opacity=0.7,
+                dash_array='10'
+            ).add_to(m)
+
+        # Start marker (green)
+        start_label = result.get('start_location_name', 'Start')
         folium.Marker(
-            location=[from_city_coords['lat'], from_city_coords['lon']],
-            popup=folium.Popup(f"""
-                <div style='width: 200px'>
-                    <h4>🚀 Start Point</h4>
-                    <p><b>{from_city_coords['name']}</b></p>
-                    <p>Vehicle: {self.vehicle_emissions[result['vehicle_type']]['name']}</p>
-                </div>
-            """, max_width=250),
-            tooltip=f"Start: {from_city_coords['name']}",
+            [from_city_coords['lat'], from_city_coords['lon']],
+            popup=f"<b>🚀 Start:</b> {start_label}",
+            tooltip=f"Start: {start_label}",
             icon=folium.Icon(color='green', icon='play', prefix='fa')
         ).add_to(m)
-        
-        # Add end marker
+
+        # End marker (red)
+        end_label = result.get('end_location_name', 'Destination')
         folium.Marker(
-            location=[to_city_coords['lat'], to_city_coords['lon']],
-            popup=folium.Popup(f"""
-                <div style='width: 200px'>
-                    <h4>🏁 Destination</h4>
-                    <p><b>{to_city_coords['name']}</b></p>
-                    <p>Distance: {result['distance']} km</p>
-                    <p>Time: {result['time']} min</p>
-                </div>
-            """, max_width=250),
-            tooltip=f"End: {to_city_coords['name']}",
+            [to_city_coords['lat'], to_city_coords['lon']],
+            popup=f"<b>🏁 Destination:</b> {end_label}",
+            tooltip=f"End: {end_label}",
             icon=folium.Icon(color='red', icon='stop', prefix='fa')
         ).add_to(m)
-        
-        # Draw route line
-        route_coords = [
-            [from_city_coords['lat'], from_city_coords['lon']],
-            [to_city_coords['lat'], to_city_coords['lon']]
-        ]
-        
-        folium.PolyLine(
-            route_coords,
-            color=route_color,
-            weight=5,
-            opacity=0.8,
-            popup=folium.Popup(f"""
-                <div style='width: 250px'>
-                    <h4>🛣️ Optimized Route</h4>
-                    <p><b>Route:</b> {result['route']}</p>
-                    <p><b>Distance:</b> {result['distance']} km</p>
-                    <p><b>Time:</b> {result['time']} min</p>
-                    <p><b>CO₂ Emission:</b> {result['emission']} kg</p>
-                    <p><b>CO₂ Savings:</b> {result['savings']} kg ({result['co2_reduction']}%)</p>
-                    <p><b>Eco Rating:</b> <span style='color:{route_color}'>{emission_category}</span></p>
-                </div>
-            """, max_width=300),
-            tooltip=f"Distance: {result['distance']} km | CO₂: {result['emission']} kg"
-        ).add_to(m)
-        
-        # Add midpoint marker with route info
-        mid_lat = center_lat
-        mid_lon = center_lon
-        
-        folium.Marker(
-            location=[mid_lat, mid_lon],
-            popup=folium.Popup(f"""
-                <div style='width: 250px'>
-                    <h4>📊 Route Summary</h4>
-                    <p><b>Vehicle:</b> {self.vehicle_emissions[result['vehicle_type']]['icon']} {self.vehicle_emissions[result['vehicle_type']]['name']}</p>
-                    <p><b>Distance:</b> {result['distance']} km</p>
-                    <p><b>Duration:</b> {result['time']} min</p>
-                    <p><b>CO₂ Emission:</b> {result['emission']} kg</p>
-                    <p><b>CO₂ Saved:</b> {result['savings']} kg</p>
-                    <p><b>Reduction:</b> {result['co2_reduction']}%</p>
-                    <p><b>Eco Rating:</b> <span style='color:{route_color};font-weight:bold'>{emission_category}</span></p>
-                </div>
-            """, max_width=300),
-            icon=folium.DivIcon(html=f"""
-                <div style='background-color:{route_color}; 
-                            color:; 
-                            border-radius:50%; 
-                            width:40px; 
-                            height:40px; 
-                            display:flex; 
-                            align-items:center; 
-                            justify-content:center;
-                            font-weight:bold;
-                            font-size:16px;
-                            box-shadow: 0 2px 5px rgba(0,0,0,0.3);'>
-                    {self.vehicle_emissions[result['vehicle_type']]['icon']}
-                </div>
-            """)
-        ).add_to(m)
-        
+
         return m
 
     def display_route_results_enhanced(self, result):
@@ -591,9 +671,8 @@ class EcoDriveApp:
             st.markdown("#### 💡 AI Insights")
             st.info(f"This route saves **{result['savings']} kg** of CO₂ compared to alternative routes, equivalent to planting **{int(result['savings'] * 0.05)}** trees!")
 
-
     def render_ai_chat(self):
-        """✅ FIXED: Render AI chat assistant with proper integration"""
+        """Render AI chat assistant with proper integration"""
         st.subheader("💬 AI Traffic Assistant (ML-Powered)")
         
         # Show which mode is active
@@ -630,7 +709,7 @@ class EcoDriveApp:
                     # Add user message
                     st.session_state.chat_messages.append({"role": "user", "content": user_input})
                     
-                    # ✅ BUILD CONTEXT FROM LIVE DATA
+                    # Build context from live data
                     context_str = f"""
                     Current Traffic Data:
                     Bangalore: {st.session_state.live_data['bangalore']['congestion']}% congestion
@@ -639,7 +718,7 @@ class EcoDriveApp:
                     Hyderabad: {st.session_state.live_data['hyderabad']['congestion']}% congestion
                     """
                     
-                    # ✅ ACTUALLY USE THE AI ASSISTANT CLASS
+                    # Use the AI assistant
                     ai_response = self.ai_assistant.generate_response(user_input, context_str)
                     
                     st.session_state.chat_messages.append({"role": "assistant", "content": ai_response})
@@ -697,32 +776,9 @@ class EcoDriveApp:
     def run(self):
         """Main application runner"""
         self.render_header()
-        
-        with st.sidebar:
-            st.image("https://via.placeholder.com/200x100/10B981/FFFFFF?text=EcoDrive+AI", 
-                    caption="Production-Grade AI System")
-            
-            st.markdown("### 🚀 System Features")
-            st.markdown("""
-            ✅ **Multi-City Support**  
-            ✅ **Real-time ML Predictions**  
-            ✅ **AI-Powered Optimization**  
-            ✅ **Interactive Visualizations**  
-            ✅ **Production Deployment**  
-            """)
-            
-            st.markdown("### 🛠️ Tech Stack")
-            st.markdown("""
-            - **Backend**: Python, FastAPI
-            - **ML**: Scikit-learn, XGBoost  
-            - **AI**: GPT / ML Models
-            - **Frontend**: Streamlit  
-            - **Visualization**: Plotly  
-            - **Deployment**: Docker, Cloud  
-            """)
-         
+
         tab1, tab2, tab3, tab4 = st.tabs(["🌍 Live Dashboard", "🎯 Route Optimizer", "💬 AI Assistant", "📊 Analytics"])
-        
+
         with tab1:
             self.render_live_dashboard()
         
