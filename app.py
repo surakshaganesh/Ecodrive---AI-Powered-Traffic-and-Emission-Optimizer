@@ -11,7 +11,6 @@ from models.traffic_predictor import TrafficPredictor
 from models.route_optimizer import RouteOptimizer
 from utils.data_processor import DataProcessor
 from utils.ai_assistant import AIAssistant
-from monitoring import SystemMonitor
 import pickle
 import os
 import folium
